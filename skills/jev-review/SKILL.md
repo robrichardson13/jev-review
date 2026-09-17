@@ -1,37 +1,40 @@
 ---
 name: jev-review
-description: Check a diff against the repo's written rules and Rob's personal code principles using Jev, a fast classifier. Run the rules check after each coherent implementation slice and before final handoff; use the jev_review scorecard only as a secondary signal. Also use when asked to add, tune, or calibrate a rule. Skip for formatting-only or docs-only changes.
+description: Check a diff against written rules using Jev, a fast classifier - the user's personal rules plus the repository's own. Run the jev_rules check after each coherent implementation slice and before final handoff; use the jev_review scorecard only as a secondary signal. Also use when asked to add, tune, or calibrate a rule. Skip for formatting-only or docs-only changes.
 ---
 
 # Jev Review
 
 Jev is a **System One model**: a classifier that answers typed questions in ~200 ms. It does not reason about code. Measured consequences, which shape everything below:
 
-- Asked a **generic** question about a bare diff ("is correctness strong?"), it cannot tell a bug from its fix. It rated three known bugs the same as, or better than, their fixes.
+- Asked a **generic** question about a bare diff ("is correctness strong?"), it cannot tell a bug from its fix. It rated known bugs the same as, or better than, their fixes.
 - Asked a **pointed** question with the **rule written down**, it separates them cleanly (bug 0.72–0.95, fix 0.05–0.09 on the same pairs).
 
-So the knowledge has to come from you. Jev's job is to check a diff against rules that are already written, cheaply enough to do on every slice.
+So the knowledge has to come from written rules. Jev's job is to check a diff against them, cheaply enough to do on every slice.
 
 ## 1. Rules check (primary)
 
-```sh
-node <this-skill-dir>/scripts/jev-rules.mjs              # working tree vs HEAD
-node <this-skill-dir>/scripts/jev-rules.mjs --base main  # whole branch
+Call the `jev_rules` MCP tool with `repoRoot` set to the repository's absolute path. The server runs `git diff` itself, so do not paste the diff:
+
+```json
+{ "repoRoot": "/abs/path/to/repo" }
+{ "repoRoot": "/abs/path/to/repo", "base": "main" }
 ```
 
-It merges two rule lists and asks one yes/no question per rule, per changed file:
+The first checks the working tree against `HEAD`; the second checks the whole branch. Rules are merged from three sources, later overriding earlier by `id`:
 
-- `principles.json` next to this file — personal principles, applied in every repo.
-- `.jev/rules.json` at the repo root — that repo's invariants. Absent is fine.
+- `~/.jev/rules.json`: the user's personal rules, applied in every repository.
+- `<repoRoot>/.jev/rules.json`: that repository's invariants. Absent is fine.
+- `rules` passed inline: for trying out or calibrating a rule.
 
-Output is `probability  rule-id  file`, highest first. Exit `0` clean, `1` hits at or above `--threshold` (default 0.6), `2` could not run. `--json` returns every probability, not just hits. Needs `JEV_API_KEY`. Untracked files are not in `git diff`; `git add -N` them first.
+The result lists `hits` (`probability`, `rule`, `file`) at or above `threshold` (default 0.6), plus `skippedFiles` for diffs too large to send. Untracked files are not in `git diff`; `git add -N` them first.
 
 **Reading a hit.** A hit is a pointer, not a verdict. Open the file, read the rule, decide.
 
-- ≥ 0.8: almost always real, or the diff's *context lines* contain a violation you did not write. Both are worth knowing.
+- ≥ 0.8: almost always real, or the diff's *context lines* contain a violation that was already there. Both are worth knowing.
 - 0.6–0.8: read the code. Often a rule worded too broadly.
 - A hit you judge wrong is a **rule bug**. Tighten the rule's wording or its `paths` rather than ignoring it, or it will fire again forever.
-- A 5xx from the API means no answer. Never report a check that did not run as clean.
+- A tool error means the check did not run. Never report that as clean, and review any `skippedFiles` by hand.
 
 Correctness and the user's requirements outrank every rule. Never restructure sound code just to lower a probability.
 
@@ -47,22 +50,22 @@ A rule that discriminates has three parts, in plain prose: **what is forbidden**
 - State exemptions in the rule ("code inside X itself is exempt").
 - Use `paths` to keep a rule off files it cannot apply to. It is the main false-positive control.
 - Vague principles ("write clean code") do not discriminate. If you cannot describe what a violation looks like, it is not a rule yet.
-- Good sources: a repo's CLAUDE.md / AGENTS.md invariants, postmortems, and anything a reviewer has had to say twice.
+- Good sources: the repository's CLAUDE.md / AGENTS.md invariants, postmortems, and anything a reviewer has had to say twice.
+- Put a rule in `.jev/rules.json` when it is about this codebase, and in `~/.jev/rules.json` when it is how the user wants code written everywhere.
 
-**Calibrate every new rule** before trusting it. Write the smallest diff that violates it and the same diff fixed, then:
+**Calibrate every new rule** before trusting it. Write the smallest diff that violates it and the same diff fixed, then call `jev_rules` once with each:
 
-```sh
-node scripts/jev-rules.mjs --rules my-rules.json --diff-file bad.diff  --json
-node scripts/jev-rules.mjs --rules my-rules.json --diff-file good.diff --json
+```json
+{ "diff": "<bad or good diff>", "rules": [ { "id": "my-rule", "rule": "…" } ], "includeAll": true }
 ```
 
-Keep the rule when bad scores ≥ 0.7 and good ≤ 0.3. Otherwise reword and retry; it takes seconds.
+Read your rule's probability in `all`. Keep the rule when bad scores ≥ 0.7 and good ≤ 0.3. Otherwise reword and retry; it takes seconds.
 
-When the user corrects the same kind of mistake twice, or a bug ships that a written rule would have caught, propose a new rule for `.jev/rules.json` (repo-specific) or `principles.json` (applies everywhere).
+When the user corrects the same kind of mistake twice, or a bug ships that a written rule would have caught, propose a new rule and where it belongs.
 
 ## 3. Scorecard (secondary)
 
-The `jev_review` MCP tool scores 19 generic dimensions. Run-to-run noise is about ±0.3, so ignore any change under 0.5, and ignore dimensions whose confidence is under ~0.4. Its issue text is a fixed menu with no locations.
+The `jev_review` tool scores 19 generic dimensions. Run-to-run noise is about ±0.3, so ignore any change under 0.5, and ignore dimensions whose confidence is under ~0.4. Its issue text is a fixed menu with no locations.
 
 It is only informative when you put the relevant rules and invariants into `repositoryContext`; without them it sees a diff and guesses. Use it as a coarse "this slice looks large or risky" signal and for `previousEvaluation` comparisons across a refactor. Do not use it to find bugs, and never optimise code toward its scores.
 

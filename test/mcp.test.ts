@@ -8,7 +8,7 @@ import { createMcpServer } from "../src/mcp/server.js";
 import { fakeEvaluation } from "./helpers.js";
 
 describe("MCP server", () => {
-  it("exposes one machine-readable jev_review tool", async () => {
+  it("exposes the jev_review and jev_rules tools", async () => {
     const expected = fakeEvaluation();
     const server = createMcpServer(async () => expected);
     const client = new Client({ name: "jev-review-test", version: "1.0.0" });
@@ -19,7 +19,7 @@ describe("MCP server", () => {
 
     try {
       const listed = await client.listTools();
-      assert.deepEqual(listed.tools.map((tool) => tool.name), ["jev_review"]);
+      assert.deepEqual(listed.tools.map((tool) => tool.name), ["jev_review", "jev_rules"]);
 
       const result = await client.callTool({
         name: "jev_review",

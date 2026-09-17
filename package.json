@@ -10,7 +10,7 @@
   "scripts": {
     "build": "esbuild src/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/server.js --banner:js=\"#!/usr/bin/env node\"",
     "check": "tsc --noEmit",
-    "test": "tsc --project tsconfig.test.json && node --test .test-dist/test/**/*.test.js skills/jev-review/scripts/*.test.mjs",
+    "test": "tsc --project tsconfig.test.json && node --test .test-dist/test/**/*.test.js",
     "validate": "npm run check && npm test && npm run build"
   },
   "dependencies": {

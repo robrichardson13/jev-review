@@ -19,7 +19,7 @@ Jev Review runs as a local MCP server and gives Claude Code, Codex, Cursor, and 
 > **Your API key stays on your machine.** Jev Review has no hosted backend, database, telemetry service, or author-operated proxy. The only remote request is sent directly to the configured Jev API.
 
 > [!NOTE]
-> **This is Rob Richardson's fork.** Upstream's `jev_review` scorecard asks Jev generic quality questions about a bare diff; measured against known bug/fix pairs, that cannot tell a bug from its fix. Jev is a classifier, so it discriminates well only when the rule is written down and the question is pointed (bug 0.72–0.95 vs fix 0.05–0.09 on the same pairs). This fork adds `skills/jev-review/scripts/jev-rules.mjs`, which checks a diff against `principles.json` (personal, every repo) plus a repo's own `.jev/rules.json`, and rewrites the skill around that. The MCP server is unchanged. See [`skills/jev-review/SKILL.md`](skills/jev-review/SKILL.md).
+> **About this fork.** Jev is a classifier, not a reasoner. Measured against known bug/fix pairs, generic quality questions about a bare diff could not tell a bug from its fix, while a pointed question about a rule that is written down separated the same pairs cleanly (bug 0.72–0.95, fix 0.05–0.09). This fork adds a second tool, [`jev_rules`](#rules-check), that checks a diff against your personal rules and the repository's rules, and reorients the skill around it.
 
 ## Demo
 
@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/0ff9f873-0652-4826-af3d-6bb4f42c70b1
 | **Distribution** | This GitHub repository—no npm publication |
 | **Runtime** | Local Node.js process over MCP stdio |
 | **Remote access** | Direct requests to Jev using your API key |
-| **MCP tools** | One focused tool: `jev_review` |
+| **MCP tools** | `jev_rules` (check a diff against written rules) and `jev_review` (scorecard) |
 | **Code changes** | Always performed by the primary coding agent |
 
 ## Quick start
@@ -200,9 +200,48 @@ For the full skill and MCP setup, add this to `~/.config/opencode/opencode.json`
 
 Run `opencode mcp list` to verify the connection. OpenCode may display the tool as `jev-review_jev_review`; the underlying MCP tool is still `jev_review`.
 
-## MCP tool
+## Rules check
 
-Jev Review intentionally starts with one tool: `jev_review`.
+`jev_rules` asks Jev one yes/no question per rule, per changed file, and returns the likely violations as `probability`, rule id, and file.
+
+Rules are plain JSON and come from up to three places, later overriding earlier by `id`:
+
+| Source | Path | Use for |
+| --- | --- | --- |
+| Personal | `~/.jev/rules.json` | Principles you want enforced in every repository |
+| Repository | `<repo>/.jev/rules.json` | That codebase's invariants; commit it so the whole team and every agent share them |
+| Inline | the tool's `rules` argument | Calibrating or trying out a rule |
+
+```json
+{
+  "rules": [
+    {
+      "id": "never-swallow-errors",
+      "paths": "optional regex on the changed file's path",
+      "rule": "What is forbidden, why (the failure it causes), and what to do instead."
+    }
+  ]
+}
+```
+
+[`examples/rules.example.json`](examples/rules.example.json) is a starter set to copy. A rule discriminates when it names the concrete APIs a violation would contain, covers one concern, and states its exemptions; `paths` is the main false-positive control. Calibrate a new rule by calling `jev_rules` with `diff`, `rules`, and `includeAll` twice, once with a violating diff and once with the fixed one, and keep it when they score about 0.7 or higher and 0.3 or lower.
+
+```ts
+{
+  repoRoot?: string;   // loads <repoRoot>/.jev/rules.json; without `diff`, runs `git diff <base>` here
+  base?: string;       // default "HEAD"; use the branch base to check a whole branch
+  diff?: string;       // check this diff instead of the working tree
+  rules?: Rule[];      // inline rules
+  threshold?: number;  // default 0.6
+  includeAll?: boolean // also return every probability, not only hits
+}
+```
+
+A file whose diff exceeds 100 KB is skipped and listed in `skippedFiles`. Untracked files are not part of `git diff`. A failed request is an error, never a clean result.
+
+## Scorecard tool
+
+`jev_review` scores generic quality dimensions. Without the relevant rules in `repositoryContext` it is a coarse signal: run-to-run noise is about ±0.3.
 
 ```ts
 {
@@ -217,7 +256,7 @@ Jev Review intentionally starts with one tool: `jev_review`.
 }
 ```
 
-At least one current-context field is required. Callers should normally send the task and focused diff, adding complete files only when the surrounding implementation is necessary to understand the change. Jev Review never reads the repository automatically.
+At least one current-context field is required. Callers should normally send the task and focused diff, adding complete files only when the surrounding implementation is necessary to understand the change. `jev_review` never reads the repository itself.
 
 Jev Review does not impose an additional character, token, or file-count limit. The Jev API currently enforces its own token ceiling: live `jev-latest` behavior indicates roughly 32,768 tokens for the submitted state, although this number is not published in the API documentation or OpenAPI schema and may change. When Jev returns `max_tokens_exceeded`, the server asks the agent to reduce unrelated context or split the change into coherent review slices.
 
@@ -324,7 +363,7 @@ claude plugin validate . --strict
 
 The local MCP process reads `JEV_API_KEY` and uses it only in the TLS Authorization header sent directly to `https://api.typesafe.ai/v1/systemone`. Jev Review never stores or logs the key.
 
-Only the `task`, `diff`, `files`, and `repositoryContext` explicitly supplied to `jev_review` are sent to Jev. `previousEvaluation` is compared locally and is not included in the current code context. No repository files are discovered or uploaded automatically.
+Only the `task`, `diff`, `files`, and `repositoryContext` explicitly supplied to `jev_review` are sent to Jev. `previousEvaluation` is compared locally and is not included in the current code context. `jev_review` discovers and uploads nothing on its own. `jev_rules` reads only `~/.jev/rules.json` and `<repoRoot>/.jev/rules.json`, and when called with `repoRoot` and no `diff` it runs `git diff <base>` there and sends that diff, one changed file per request, along with the rule text.
 
 Review context does leave your machine for TypeSafe's Jev API. Do not supply secrets or unrelated proprietary content, and review [TypeSafe's privacy policy](https://typesafe.ai/privacy) for the remote service's handling terms. Jev Review complements rather than replaces dedicated security tooling.
 

@@ -34128,7 +34128,7 @@ var Protocol = class {
         }
         await this.notification(notification, notificationOptions);
       },
-      sendRequest: async (r, resultSchema, options) => {
+      sendRequest: async (r, resultSchema2, options) => {
         if (abortController.signal.aborted) {
           throw new McpError(ErrorCode.ConnectionClosed, "Request was cancelled");
         }
@@ -34140,7 +34140,7 @@ var Protocol = class {
         if (effectiveTaskId && taskStore) {
           await taskStore.updateTaskStatus(effectiveTaskId, "input_required");
         }
-        return await this.request(r, resultSchema, requestOptions);
+        return await this.request(r, resultSchema2, requestOptions);
       },
       authInfo: extra?.authInfo,
       requestId: request.id,
@@ -34301,11 +34301,11 @@ var Protocol = class {
    *
    * @experimental Use `client.experimental.tasks.requestStream()` to access this method.
    */
-  async *requestStream(request, resultSchema, options) {
+  async *requestStream(request, resultSchema2, options) {
     const { task } = options ?? {};
     if (!task) {
       try {
-        const result = await this.request(request, resultSchema, options);
+        const result = await this.request(request, resultSchema2, options);
         yield { type: "result", result };
       } catch (error62) {
         yield {
@@ -34329,7 +34329,7 @@ var Protocol = class {
         yield { type: "taskStatus", task: task2 };
         if (isTerminal(task2.status)) {
           if (task2.status === "completed") {
-            const result = await this.getTaskResult({ taskId }, resultSchema, options);
+            const result = await this.getTaskResult({ taskId }, resultSchema2, options);
             yield { type: "result", result };
           } else if (task2.status === "failed") {
             yield {
@@ -34345,7 +34345,7 @@ var Protocol = class {
           return;
         }
         if (task2.status === "input_required") {
-          const result = await this.getTaskResult({ taskId }, resultSchema, options);
+          const result = await this.getTaskResult({ taskId }, resultSchema2, options);
           yield { type: "result", result };
           return;
         }
@@ -34365,7 +34365,7 @@ var Protocol = class {
    *
    * Do not use this method to emit notifications! Use notification() instead.
    */
-  request(request, resultSchema, options) {
+  request(request, resultSchema2, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
     return new Promise((resolve, reject) => {
       const earlyReject = (error62) => {
@@ -34441,7 +34441,7 @@ var Protocol = class {
           return reject(response);
         }
         try {
-          const parseResult = safeParse2(resultSchema, response.result);
+          const parseResult = safeParse2(resultSchema2, response.result);
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
@@ -34497,8 +34497,8 @@ var Protocol = class {
    *
    * @experimental Use `client.experimental.tasks.getTaskResult()` to access this method.
    */
-  async getTaskResult(params, resultSchema, options) {
-    return this.request({ method: "tasks/result", params }, resultSchema, options);
+  async getTaskResult(params, resultSchema2, options) {
+    return this.request({ method: "tasks/result", params }, resultSchema2, options);
   }
   /**
    * Lists tasks, optionally starting from a pagination cursor.
@@ -34891,8 +34891,8 @@ var ExperimentalServerTasks = class {
    *
    * @experimental
    */
-  requestStream(request, resultSchema, options) {
-    return this._server.requestStream(request, resultSchema, options);
+  requestStream(request, resultSchema2, options) {
+    return this._server.requestStream(request, resultSchema2, options);
   }
   /**
    * Sends a sampling request and returns an AsyncGenerator that yields response messages.
@@ -35057,8 +35057,8 @@ var ExperimentalServerTasks = class {
    *
    * @experimental
    */
-  async getTaskResult(taskId, resultSchema, options) {
-    return this._server.getTaskResult({ taskId }, resultSchema, options);
+  async getTaskResult(taskId, resultSchema2, options) {
+    return this._server.getTaskResult({ taskId }, resultSchema2, options);
   }
   /**
    * Lists tasks with optional pagination.
@@ -37162,8 +37162,144 @@ async function reviewWithJev(rawInput, dependencies = {}) {
   return toEvaluation(response, input2.previousEvaluation);
 }
 
+// src/rules/rules.ts
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+var MAX_FILE_DIFF_BYTES = 1e5;
+var CONCURRENCY = 8;
+var ruleSchema = external_exports.object({
+  id: external_exports.string().min(1),
+  rule: external_exports.string().min(1),
+  /** Regex on the changed file's path. Omitted: the rule applies to every file. */
+  paths: external_exports.string().min(1).optional()
+}).strict();
+var ruleFileSchema = external_exports.object({ rules: external_exports.array(ruleSchema) });
+var rulesInputSchema = external_exports.object({
+  repoRoot: external_exports.string().min(1).optional(),
+  base: external_exports.string().min(1).optional(),
+  diff: external_exports.string().min(1).optional(),
+  rules: external_exports.array(ruleSchema).optional(),
+  threshold: external_exports.number().min(0).max(1).optional(),
+  includeAll: external_exports.boolean().optional()
+}).strict();
+var resultSchema = external_exports.object({
+  file: external_exports.string(),
+  rule: external_exports.string(),
+  probability: external_exports.number(),
+  text: external_exports.string()
+});
+var rulesOutputSchema = external_exports.object({
+  threshold: external_exports.number(),
+  ruleSources: external_exports.array(external_exports.string()),
+  rulesLoaded: external_exports.number(),
+  filesChecked: external_exports.number(),
+  skippedFiles: external_exports.array(external_exports.string()),
+  hits: external_exports.array(resultSchema),
+  all: external_exports.array(resultSchema).optional()
+});
+var USER_RULES_PATH = join(homedir(), ".jev", "rules.json");
+function repoRulesPath(repoRoot) {
+  return join(repoRoot, ".jev", "rules.json");
+}
+function mergeRules(sources) {
+  const merged = /* @__PURE__ */ new Map();
+  for (const source of sources) for (const rule of source) merged.set(rule.id, rule);
+  return [...merged.values()];
+}
+function readRuleFile(path) {
+  if (!existsSync(path)) return void 0;
+  const parsed = ruleFileSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
+  if (!parsed.success) throw new Error(`${path} is not a valid rules file: ${parsed.error.issues[0]?.message}`);
+  return parsed.data.rules;
+}
+function splitDiff(diff) {
+  return diff.split(/^(?=diff --git )/m).filter((chunk) => chunk.startsWith("diff --git ")).map((chunk) => ({ file: chunk.match(/^diff --git a\/(.+?) b\//)?.[1] ?? "(unknown)", diff: chunk }));
+}
+function rulesFor(file2, rules) {
+  return rules.filter((rule) => !rule.paths || new RegExp(rule.paths).test(file2));
+}
+function buildRuleQuestions(rules) {
+  return Object.fromEntries(
+    rules.map((rule) => [
+      rule.id,
+      {
+        type: "noul",
+        instructions: `Rule: ${rule.rule}
+
+After this diff is applied, does the code it touches violate this rule? Answer false when the diff has nothing to do with the rule.`,
+        criteria: {
+          true: "The resulting code violates the rule.",
+          false: "The resulting code complies with the rule, or the rule does not apply to this diff."
+        }
+      }
+    ])
+  );
+}
+async function gitDiff(repoRoot, base) {
+  if (base.startsWith("-")) throw new Error("base must be a git ref, not an option.");
+  const { stdout } = await promisify(execFile)("git", ["diff", base, "--"], {
+    cwd: repoRoot,
+    maxBuffer: 1 << 28,
+    timeout: 3e4
+  });
+  return stdout;
+}
+async function checkRules(rawInput, dependencies = {}) {
+  const input2 = rulesInputSchema.parse(rawInput);
+  if (!input2.diff && !input2.repoRoot) throw new Error("Provide repoRoot (to diff the working tree) or diff.");
+  const userPath = dependencies.userRulesPath ?? USER_RULES_PATH;
+  const files = [userPath, ...input2.repoRoot ? [repoRulesPath(input2.repoRoot)] : []];
+  const loaded = files.map((path) => ({ path, rules: readRuleFile(path) })).filter((entry) => entry.rules);
+  const rules = mergeRules([...loaded.map((entry) => entry.rules ?? []), input2.rules ?? []]);
+  if (rules.length === 0) {
+    throw new Error(`No rules found. Add ${userPath} (personal), .jev/rules.json at the repo root, or pass rules inline.`);
+  }
+  const diff = input2.diff ?? await gitDiff(input2.repoRoot, input2.base ?? "HEAD");
+  const threshold = input2.threshold ?? 0.6;
+  const client = dependencies.client ?? new JevClient({ apiKey: getJevApiKey() });
+  const skippedFiles = [];
+  const work = splitDiff(diff).flatMap((chunk) => {
+    const applicable = rulesFor(chunk.file, rules);
+    if (applicable.length === 0) return [];
+    if (Buffer.byteLength(chunk.diff) > MAX_FILE_DIFF_BYTES) {
+      skippedFiles.push(chunk.file);
+      return [];
+    }
+    return [{ ...chunk, rules: applicable }];
+  });
+  const all = [];
+  for (let index = 0; index < work.length; index += CONCURRENCY) {
+    await Promise.all(
+      work.slice(index, index + CONCURRENCY).map(async (item) => {
+        const response = await client.evaluate({ diff: item.diff }, buildRuleQuestions(item.rules));
+        for (const rule of item.rules) {
+          const answer = response.answers[rule.id];
+          if (answer?.type !== "noul") throw new Error(`Jev returned no answer for rule "${rule.id}" on ${item.file}.`);
+          all.push({ file: item.file, rule: rule.id, probability: answer.noul, text: rule.rule });
+        }
+      })
+    );
+  }
+  all.sort((a, b) => b.probability - a.probability);
+  return {
+    threshold,
+    ruleSources: [...loaded.map((entry) => entry.path), ...input2.rules?.length ? ["inline"] : []],
+    rulesLoaded: rules.length,
+    filesChecked: work.length,
+    skippedFiles,
+    hits: all.filter((result) => result.probability >= threshold),
+    ...input2.includeAll ? { all } : {}
+  };
+}
+
 // src/mcp/server.ts
 var SERVER_INSTRUCTIONS = [
+  "Jev is a fast classifier, not a reasoner: it judges a diff well against a rule that is written down, and poorly against generic quality questions.",
+  "Prefer jev_rules: after each coherent implementation slice and before handoff, call it with repoRoot to check the working tree against the user's personal rules (~/.jev/rules.json) and the repository's rules (.jev/rules.json). Treat each hit as a pointer to inspect, not a verdict; a wrong hit means the rule's wording or paths should be tightened.",
+  "The jev_review scorecard below is a secondary, coarse signal.",
   "Jev Review is a repeated scalar feedback loop, not a narrative reviewer.",
   "For every nontrivial coding task, call jev_review after the first coherent implementation to establish a baseline, then call it again after each meaningful improvement.",
   "Jev supplies metric scores, confidence, and score movement; it does not provide a prose root-cause analysis.",
@@ -37174,7 +37310,7 @@ var SERVER_INSTRUCTIONS = [
   "Do not repeat identical calls, review formatting-only changes, or game scores through scope expansion, speculative architecture, meaningless tests, unnecessary comments, or mechanical file splitting.",
   "Correctness, user requirements, and normal project validation always outrank score improvement."
 ].join(" ");
-function createMcpServer(review = reviewWithJev) {
+function createMcpServer(review = reviewWithJev, rules = checkRules) {
   const server = new McpServer(
     { name: "jev-review", version: "0.1.1" },
     { instructions: SERVER_INSTRUCTIONS }
@@ -37205,6 +37341,29 @@ function createMcpServer(review = reviewWithJev) {
           isError: true,
           content: [{ type: "text", text: message }]
         };
+      }
+    }
+  );
+  server.registerTool(
+    "jev_rules",
+    {
+      title: "Jev rules check",
+      description: "Check a diff against written rules: the user's personal rules (~/.jev/rules.json) merged with the repository's rules (<repoRoot>/.jev/rules.json), later overriding earlier by id. Asks Jev one yes/no question per rule per changed file and returns the likely violations as probability, rule id, and file. Pass repoRoot to diff the working tree against base (default HEAD; use the branch base before handoff) without sending the diff yourself. To calibrate a rule, pass diff and rules inline with includeAll, once with a violating diff and once with the fixed one: keep the rule when they score about 0.7 or higher and 0.3 or lower. An error means the check did not run, never that the diff is clean.",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true
+      },
+      inputSchema: rulesInputSchema,
+      outputSchema: rulesOutputSchema
+    },
+    async (input2) => {
+      try {
+        const output2 = await rules(input2);
+        return { content: [{ type: "text", text: JSON.stringify(output2) }], structuredContent: output2 };
+      } catch (error62) {
+        const message = error62 instanceof Error ? error62.message : "Jev rules check failed unexpectedly.";
+        return { isError: true, content: [{ type: "text", text: message }] };
       }
     }
   );
