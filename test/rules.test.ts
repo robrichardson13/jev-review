@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { JevResponse } from "../src/jev/schema.js";
-import { checkRules, mergeRules, rulesFor, splitDiff } from "../src/rules/rules.js";
+import { checkLimits, checkRules, mergeRules, rulesFor, splitDiff } from "../src/rules/rules.js";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 --- a/src/a.ts
@@ -61,6 +61,24 @@ describe("rules check", () => {
     assert.equal(output.rulesLoaded, 3);
     assert.deepEqual(output.hits.map((hit) => `${hit.rule}@${hit.file}`), ["repo-src@src/a.ts"]);
     assert.equal(output.all, undefined);
+  });
+
+  it("flags a grown file over the line limit and a crowded directory a file was added to", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jev-limits-"));
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "big.ts"), "line\n".repeat(50));
+    writeFileSync(join(dir, "src", "shrunk.ts"), "line\n".repeat(50));
+    writeFileSync(join(dir, "src", "new.ts"), "x\n");
+    writeFileSync(join(dir, "src", "ignored.md"), "line\n".repeat(50));
+    const chunk = (file: string, body: string) => ({ file, diff: `diff --git a/${file} b/${file}\n${body}` });
+    const hits = checkLimits(dir, [
+      chunk("src/big.ts", "@@\n+a\n+b\n-c\n"),
+      chunk("src/shrunk.ts", "@@\n+a\n-b\n-c\n"),
+      chunk("src/new.ts", "new file mode 100644\n@@\n+x\n"),
+      chunk("../escape.ts", "@@\n+a\n"),
+      chunk("src/ignored.md", "@@\n+a\n+b\n")
+    ], { maxFileLines: 10, maxFilesPerDirectory: 2, ignorePaths: "\\.md$" });
+    assert.deepEqual(hits.map((hit) => `${hit.limit}:${hit.path}:${hit.value}`), ["maxFileLines:src/big.ts:51", "maxFilesPerDirectory:src:4"]);
   });
 
   it("refuses to run with no rules rather than reporting a clean diff", async () => {

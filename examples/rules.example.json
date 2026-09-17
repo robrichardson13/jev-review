@@ -1,4 +1,9 @@
 {
+  "limits": {
+    "maxFileLines": 800,
+    "maxFilesPerDirectory": 10,
+    "ignorePaths": "\\.md$"
+  },
   "rules": [
     {
       "id": "never-swallow-errors",

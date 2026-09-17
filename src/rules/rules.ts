@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { z } from "zod";
@@ -12,6 +12,7 @@ import { JevClient } from "../jev/client.js";
 
 const MAX_FILE_DIFF_BYTES = 100_000;
 const CONCURRENCY = 8;
+const MAX_COUNTED_FILE_BYTES = 5_000_000;
 
 export const ruleSchema = z
   .object({
@@ -22,7 +23,20 @@ export const ruleSchema = z
   })
   .strict();
 
-const ruleFileSchema = z.object({ rules: z.array(ruleSchema) });
+/** Exact counts, checked locally. A classifier should not be asked to count. */
+export const limitsSchema = z
+  .object({
+    maxFileLines: z.number().int().positive().optional(),
+    maxFilesPerDirectory: z.number().int().positive().optional(),
+    /** Regex on the changed file's path; matching files are exempt from every limit. */
+    ignorePaths: z.string().min(1).optional()
+  })
+  .strict();
+
+const ruleFileSchema = z.object({ rules: z.array(ruleSchema).default([]), limits: limitsSchema.optional() });
+
+export type Limits = z.infer<typeof limitsSchema>;
+type RuleFile = z.infer<typeof ruleFileSchema>;
 
 export type Rule = z.infer<typeof ruleSchema>;
 
@@ -53,6 +67,7 @@ export const rulesOutputSchema = z.object({
   filesChecked: z.number(),
   skippedFiles: z.array(z.string()),
   hits: z.array(resultSchema),
+  limitHits: z.array(z.object({ path: z.string(), limit: z.string(), value: z.number(), max: z.number() })),
   all: z.array(resultSchema).optional()
 });
 
@@ -71,11 +86,44 @@ export function mergeRules(sources: Rule[][]): Rule[] {
   return [...merged.values()];
 }
 
-export function readRuleFile(path: string): Rule[] | undefined {
+export function readRuleFile(path: string): RuleFile | undefined {
   if (!existsSync(path)) return undefined;
   const parsed = ruleFileSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
   if (!parsed.success) throw new Error(`${path} is not a valid rules file: ${parsed.error.issues[0]?.message}`);
-  return parsed.data.rules;
+  return parsed.data;
+}
+
+/**
+ * Flags only what the diff makes worse: a file over the line limit that this
+ * diff grew, and a directory over the file limit that this diff added a file to.
+ */
+export function checkLimits(repoRoot: string, chunks: Array<{ file: string; diff: string }>, limits: Limits): RulesOutput["limitHits"] {
+  const hits: RulesOutput["limitHits"] = [];
+  const crowded = new Set<string>();
+  const ignored = limits.ignorePaths ? new RegExp(limits.ignorePaths) : undefined;
+  for (const chunk of chunks) {
+    if (ignored?.test(chunk.file)) continue;
+    const path = resolve(repoRoot, chunk.file);
+    if (relative(repoRoot, path).startsWith("..") || !existsSync(path)) continue;
+
+    const lines = chunk.diff.split("\n");
+    const added = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const removed = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    if (limits.maxFileLines && added > removed && statSync(path).size <= MAX_COUNTED_FILE_BYTES) {
+      const value = readFileSync(path, "utf8").split("\n").length;
+      if (value > limits.maxFileLines) hits.push({ path: chunk.file, limit: "maxFileLines", value, max: limits.maxFileLines });
+    }
+
+    const directory = dirname(path);
+    if (limits.maxFilesPerDirectory && chunk.diff.includes("\nnew file mode") && !crowded.has(directory)) {
+      const value = readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isFile()).length;
+      if (value > limits.maxFilesPerDirectory) {
+        crowded.add(directory);
+        hits.push({ path: dirname(chunk.file), limit: "maxFilesPerDirectory", value, max: limits.maxFilesPerDirectory });
+      }
+    }
+  }
+  return hits;
 }
 
 export function splitDiff(diff: string): Array<{ file: string; diff: string }> {
@@ -127,19 +175,24 @@ export async function checkRules(rawInput: RulesInput, dependencies: RulesDepend
 
   const userPath = dependencies.userRulesPath ?? USER_RULES_PATH;
   const files = [userPath, ...(input.repoRoot ? [repoRulesPath(input.repoRoot)] : [])];
-  const loaded = files.map((path) => ({ path, rules: readRuleFile(path) })).filter((entry) => entry.rules);
-  const rules = mergeRules([...loaded.map((entry) => entry.rules ?? []), input.rules ?? []]);
-  if (rules.length === 0) {
+  const loaded = files.flatMap((path) => {
+    const file = readRuleFile(path);
+    return file ? [{ path, ...file }] : [];
+  });
+  const rules = mergeRules([...loaded.map((entry) => entry.rules), input.rules ?? []]);
+  const limits: Limits = Object.assign({}, ...loaded.map((entry) => entry.limits ?? {}));
+  if (rules.length === 0 && !limits.maxFileLines && !limits.maxFilesPerDirectory) {
     throw new Error(`No rules found. Add ${userPath} (personal), .jev/rules.json at the repo root, or pass rules inline.`);
   }
 
   // `git diff <base>` covers committed and uncommitted work; untracked files are not included.
   const diff = input.diff ?? (await gitDiff(input.repoRoot as string, input.base ?? "HEAD"));
   const threshold = input.threshold ?? 0.6;
-  const client = dependencies.client ?? new JevClient({ apiKey: getJevApiKey() });
 
   const skippedFiles: string[] = [];
-  const work = splitDiff(diff).flatMap((chunk) => {
+  const chunks = splitDiff(diff);
+  const limitHits = input.repoRoot ? checkLimits(input.repoRoot, chunks, limits) : [];
+  const work = chunks.flatMap((chunk) => {
     const applicable = rulesFor(chunk.file, rules);
     if (applicable.length === 0) return [];
     if (Buffer.byteLength(chunk.diff) > MAX_FILE_DIFF_BYTES) {
@@ -152,10 +205,11 @@ export async function checkRules(rawInput: RulesInput, dependencies: RulesDepend
   // Every applicable rule rides in one request per file; chunk the question
   // map here if a rule list ever outgrows what the API accepts.
   const all: RulesOutput["hits"] = [];
+  const client = work.length === 0 ? undefined : dependencies.client ?? new JevClient({ apiKey: getJevApiKey() });
   for (let index = 0; index < work.length; index += CONCURRENCY) {
     await Promise.all(
       work.slice(index, index + CONCURRENCY).map(async (item) => {
-        const response = await client.evaluate({ diff: item.diff }, buildRuleQuestions(item.rules));
+        const response = await (client as Pick<JevClient, "evaluate">).evaluate({ diff: item.diff }, buildRuleQuestions(item.rules));
         for (const rule of item.rules) {
           const answer = response.answers[rule.id];
           if (answer?.type !== "noul") throw new Error(`Jev returned no answer for rule "${rule.id}" on ${item.file}.`);
@@ -173,6 +227,7 @@ export async function checkRules(rawInput: RulesInput, dependencies: RulesDepend
     filesChecked: work.length,
     skippedFiles,
     hits: all.filter((result) => result.probability >= threshold),
+    limitHits,
     ...(input.includeAll ? { all } : {})
   };
 }

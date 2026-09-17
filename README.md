@@ -214,6 +214,7 @@ Rules are plain JSON and come from up to three places, later overriding earlier 
 
 ```json
 {
+  "limits": { "maxFileLines": 800, "maxFilesPerDirectory": 10, "ignorePaths": "\\.md$" },
   "rules": [
     {
       "id": "never-swallow-errors",
@@ -223,6 +224,8 @@ Rules are plain JSON and come from up to three places, later overriding earlier 
   ]
 }
 ```
+
+`limits` are exact counts checked locally, because a classifier should not be asked to count. They flag only what a diff makes worse: a file over `maxFileLines` that the diff grew, and a directory over `maxFilesPerDirectory` that the diff added a file to. They need `repoRoot`, and a repository's `limits` override personal ones key by key.
 
 [`examples/rules.example.json`](examples/rules.example.json) is a starter set to copy. A rule discriminates when it names the concrete APIs a violation would contain, covers one concern, and states its exemptions; `paths` is the main false-positive control. Calibrate a new rule by calling `jev_rules` with `diff`, `rules`, and `includeAll` twice, once with a violating diff and once with the fixed one, and keep it when they score about 0.7 or higher and 0.3 or lower.
 

@@ -2984,7 +2984,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve.call(this, root, ref);
+      let _sch = resolve2.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -3011,7 +3011,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve(root, ref) {
+    function resolve2(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3841,7 +3841,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve(baseURI, relativeURI, options) {
+    function resolve2(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -3874,49 +3874,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative, options, skipNormalization) {
+    function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative = parse3(serialize(relative, options), options);
+        relative2 = parse3(serialize(relative2, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative.scheme) {
-        target.scheme = relative.scheme;
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (!options.tolerant && relative2.scheme) {
+        target.scheme = relative2.scheme;
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-          target.userinfo = relative.userinfo;
-          target.host = relative.host;
-          target.port = relative.port;
-          target.path = removeDotSegments(relative.path || "");
-          target.query = relative.query;
+        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+          target.userinfo = relative2.userinfo;
+          target.host = relative2.host;
+          target.port = relative2.port;
+          target.path = removeDotSegments(relative2.path || "");
+          target.query = relative2.query;
         } else {
-          if (!relative.path) {
+          if (!relative2.path) {
             target.path = base.path;
-            if (relative.query !== void 0) {
-              target.query = relative.query;
+            if (relative2.query !== void 0) {
+              target.query = relative2.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative.path[0] === "/") {
-              target.path = removeDotSegments(relative.path);
+            if (relative2.path[0] === "/") {
+              target.path = removeDotSegments(relative2.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative.path;
+                target.path = "/" + relative2.path;
               } else if (!base.path) {
-                target.path = relative.path;
+                target.path = relative2.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative.query;
+            target.query = relative2.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3924,7 +3924,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative.fragment;
+      target.fragment = relative2.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -4210,7 +4210,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve,
+      resolve: resolve2,
       resolveComponent,
       equal,
       serialize,
@@ -5716,7 +5716,7 @@ var require_contains = __commonJS({
         function validateItemsWithCount() {
           const schValid = gen.name("_valid");
           const count = gen.let("count", 0);
-          validateItems(schValid, () => gen.if(schValid, () => checkLimits(count)));
+          validateItems(schValid, () => gen.if(schValid, () => checkLimits2(count)));
         }
         function validateItems(_valid, block) {
           gen.forRange("i", 0, len, (i) => {
@@ -5729,7 +5729,7 @@ var require_contains = __commonJS({
             block();
           });
         }
-        function checkLimits(count) {
+        function checkLimits2(count) {
           gen.code((0, codegen_1._)`${count}++`);
           if (max === void 0) {
             gen.if((0, codegen_1._)`${count} >= ${min}`, () => gen.assign(valid, true).break());
@@ -15857,7 +15857,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve) {
+function isRecursive(inst, stack, resolve2) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -15867,7 +15867,7 @@ function isRecursive(inst, stack, resolve) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve);
+      const answer = isRecursive(child, stack, resolve2);
       if (answer > result)
         result = answer;
     }
@@ -15878,7 +15878,7 @@ function isRecursive(inst, stack, resolve) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve2) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -15942,7 +15942,7 @@ function isRecursive(inst, stack, resolve) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve2 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -34350,7 +34350,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error62) {
@@ -34367,7 +34367,7 @@ var Protocol = class {
    */
   request(request, resultSchema2, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const earlyReject = (error62) => {
         reject(error62);
       };
@@ -34445,7 +34445,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve(parseResult.data);
+            resolve2(parseResult.data);
           }
         } catch (error62) {
           reject(error62);
@@ -34706,12 +34706,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve, interval);
+      const timeoutId = setTimeout(resolve2, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -35802,7 +35802,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -36466,12 +36466,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve();
+        resolve2();
       } else {
-        this._stdout.once("drain", resolve);
+        this._stdout.once("drain", resolve2);
       }
     });
   }
@@ -37048,7 +37048,7 @@ var JevClient = class {
     if (!apiKey) throw new JevApiError("JEV_API_KEY is not set. Export it before starting your coding agent.");
     this.#apiKey = apiKey;
     this.#fetch = options.fetchImplementation ?? fetch;
-    this.#sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.#sleep = options.sleep ?? ((milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds)));
     this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 3e4;
     this.#maxRetries = options.maxRetries ?? 2;
   }
@@ -37164,19 +37164,26 @@ async function reviewWithJev(rawInput, dependencies = {}) {
 
 // src/rules/rules.ts
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 var MAX_FILE_DIFF_BYTES = 1e5;
 var CONCURRENCY = 8;
+var MAX_COUNTED_FILE_BYTES = 5e6;
 var ruleSchema = external_exports.object({
   id: external_exports.string().min(1),
   rule: external_exports.string().min(1),
   /** Regex on the changed file's path. Omitted: the rule applies to every file. */
   paths: external_exports.string().min(1).optional()
 }).strict();
-var ruleFileSchema = external_exports.object({ rules: external_exports.array(ruleSchema) });
+var limitsSchema = external_exports.object({
+  maxFileLines: external_exports.number().int().positive().optional(),
+  maxFilesPerDirectory: external_exports.number().int().positive().optional(),
+  /** Regex on the changed file's path; matching files are exempt from every limit. */
+  ignorePaths: external_exports.string().min(1).optional()
+}).strict();
+var ruleFileSchema = external_exports.object({ rules: external_exports.array(ruleSchema).default([]), limits: limitsSchema.optional() });
 var rulesInputSchema = external_exports.object({
   repoRoot: external_exports.string().min(1).optional(),
   base: external_exports.string().min(1).optional(),
@@ -37198,6 +37205,7 @@ var rulesOutputSchema = external_exports.object({
   filesChecked: external_exports.number(),
   skippedFiles: external_exports.array(external_exports.string()),
   hits: external_exports.array(resultSchema),
+  limitHits: external_exports.array(external_exports.object({ path: external_exports.string(), limit: external_exports.string(), value: external_exports.number(), max: external_exports.number() })),
   all: external_exports.array(resultSchema).optional()
 });
 var USER_RULES_PATH = join(homedir(), ".jev", "rules.json");
@@ -37213,7 +37221,33 @@ function readRuleFile(path) {
   if (!existsSync(path)) return void 0;
   const parsed = ruleFileSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
   if (!parsed.success) throw new Error(`${path} is not a valid rules file: ${parsed.error.issues[0]?.message}`);
-  return parsed.data.rules;
+  return parsed.data;
+}
+function checkLimits(repoRoot, chunks, limits) {
+  const hits = [];
+  const crowded = /* @__PURE__ */ new Set();
+  const ignored = limits.ignorePaths ? new RegExp(limits.ignorePaths) : void 0;
+  for (const chunk of chunks) {
+    if (ignored?.test(chunk.file)) continue;
+    const path = resolve(repoRoot, chunk.file);
+    if (relative(repoRoot, path).startsWith("..") || !existsSync(path)) continue;
+    const lines = chunk.diff.split("\n");
+    const added = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const removed = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    if (limits.maxFileLines && added > removed && statSync(path).size <= MAX_COUNTED_FILE_BYTES) {
+      const value = readFileSync(path, "utf8").split("\n").length;
+      if (value > limits.maxFileLines) hits.push({ path: chunk.file, limit: "maxFileLines", value, max: limits.maxFileLines });
+    }
+    const directory = dirname(path);
+    if (limits.maxFilesPerDirectory && chunk.diff.includes("\nnew file mode") && !crowded.has(directory)) {
+      const value = readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isFile()).length;
+      if (value > limits.maxFilesPerDirectory) {
+        crowded.add(directory);
+        hits.push({ path: dirname(chunk.file), limit: "maxFilesPerDirectory", value, max: limits.maxFilesPerDirectory });
+      }
+    }
+  }
+  return hits;
 }
 function splitDiff(diff) {
   return diff.split(/^(?=diff --git )/m).filter((chunk) => chunk.startsWith("diff --git ")).map((chunk) => ({ file: chunk.match(/^diff --git a\/(.+?) b\//)?.[1] ?? "(unknown)", diff: chunk }));
@@ -37252,16 +37286,21 @@ async function checkRules(rawInput, dependencies = {}) {
   if (!input2.diff && !input2.repoRoot) throw new Error("Provide repoRoot (to diff the working tree) or diff.");
   const userPath = dependencies.userRulesPath ?? USER_RULES_PATH;
   const files = [userPath, ...input2.repoRoot ? [repoRulesPath(input2.repoRoot)] : []];
-  const loaded = files.map((path) => ({ path, rules: readRuleFile(path) })).filter((entry) => entry.rules);
-  const rules = mergeRules([...loaded.map((entry) => entry.rules ?? []), input2.rules ?? []]);
-  if (rules.length === 0) {
+  const loaded = files.flatMap((path) => {
+    const file2 = readRuleFile(path);
+    return file2 ? [{ path, ...file2 }] : [];
+  });
+  const rules = mergeRules([...loaded.map((entry) => entry.rules), input2.rules ?? []]);
+  const limits = Object.assign({}, ...loaded.map((entry) => entry.limits ?? {}));
+  if (rules.length === 0 && !limits.maxFileLines && !limits.maxFilesPerDirectory) {
     throw new Error(`No rules found. Add ${userPath} (personal), .jev/rules.json at the repo root, or pass rules inline.`);
   }
   const diff = input2.diff ?? await gitDiff(input2.repoRoot, input2.base ?? "HEAD");
   const threshold = input2.threshold ?? 0.6;
-  const client = dependencies.client ?? new JevClient({ apiKey: getJevApiKey() });
   const skippedFiles = [];
-  const work = splitDiff(diff).flatMap((chunk) => {
+  const chunks = splitDiff(diff);
+  const limitHits = input2.repoRoot ? checkLimits(input2.repoRoot, chunks, limits) : [];
+  const work = chunks.flatMap((chunk) => {
     const applicable = rulesFor(chunk.file, rules);
     if (applicable.length === 0) return [];
     if (Buffer.byteLength(chunk.diff) > MAX_FILE_DIFF_BYTES) {
@@ -37271,6 +37310,7 @@ async function checkRules(rawInput, dependencies = {}) {
     return [{ ...chunk, rules: applicable }];
   });
   const all = [];
+  const client = work.length === 0 ? void 0 : dependencies.client ?? new JevClient({ apiKey: getJevApiKey() });
   for (let index = 0; index < work.length; index += CONCURRENCY) {
     await Promise.all(
       work.slice(index, index + CONCURRENCY).map(async (item) => {
@@ -37291,6 +37331,7 @@ async function checkRules(rawInput, dependencies = {}) {
     filesChecked: work.length,
     skippedFiles,
     hits: all.filter((result) => result.probability >= threshold),
+    limitHits,
     ...input2.includeAll ? { all } : {}
   };
 }

@@ -27,6 +27,8 @@ The first checks the working tree against `HEAD`; the second checks the whole br
 - `<repoRoot>/.jev/rules.json`: that repository's invariants. Absent is fine.
 - `rules` passed inline: for trying out or calibrating a rule.
 
+A rules file may also set `limits` (`maxFileLines`, `maxFilesPerDirectory`, `ignorePaths`). These are exact counts checked locally, reported as `limitHits`, and only for what the diff makes worse: a file over the limit that this diff grew, or a crowded directory this diff added a file to. When one fires, split the file or move the new file into a subfolder as part of the change rather than deferring it.
+
 The result lists `hits` (`probability`, `rule`, `file`) at or above `threshold` (default 0.6), plus `skippedFiles` for diffs too large to send. Untracked files are not in `git diff`; `git add -N` them first.
 
 **Reading a hit.** A hit is a pointer, not a verdict. Open the file, read the rule, decide.
