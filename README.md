@@ -18,6 +18,9 @@ Jev Review runs as a local MCP server and gives Claude Code, Codex, Cursor, and 
 > [!IMPORTANT]
 > **Your API key stays on your machine.** Jev Review has no hosted backend, database, telemetry service, or author-operated proxy. The only remote request is sent directly to the configured Jev API.
 
+> [!NOTE]
+> **This is Rob Richardson's fork.** Upstream's `jev_review` scorecard asks Jev generic quality questions about a bare diff; measured against known bug/fix pairs, that cannot tell a bug from its fix. Jev is a classifier, so it discriminates well only when the rule is written down and the question is pointed (bug 0.72–0.95 vs fix 0.05–0.09 on the same pairs). This fork adds `skills/jev-review/scripts/jev-rules.mjs`, which checks a diff against `principles.json` (personal, every repo) plus a repo's own `.jev/rules.json`, and rewrites the skill around that. The MCP server is unchanged. See [`skills/jev-review/SKILL.md`](skills/jev-review/SKILL.md).
+
 ## Demo
 
 <p align="center">

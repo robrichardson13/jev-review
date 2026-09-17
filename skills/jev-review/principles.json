@@ -1,0 +1,24 @@
+{
+  "rules": [
+    {
+      "id": "never-swallow-errors",
+      "rule": "Never swallow errors. An error must be handled, propagated, or logged with enough context to diagnose it. An empty catch block, a discarded failure result, or a silent fallback that hides the failure from both the caller and the logs is a violation. Deliberately ignoring a best-effort cleanup failure is fine when the code says so."
+    },
+    {
+      "id": "guard-clauses",
+      "rule": "Handle preconditions and failure cases first with early returns (guard clauses), so the main path stays unindented. Newly added logic that nests the happy path three or more levels deep inside if/else pyramids, when early returns would flatten it, is a violation."
+    },
+    {
+      "id": "defensive-limits",
+      "rule": "Anything that reads, loops over, retries, or buffers input from outside the process (files, network, subprocess output, user input) must have an explicit bound: a size cap, a count cap, a timeout, or a retry limit. New code that reads an unbounded amount, retries forever, or waits with no timeout is a violation."
+    },
+    {
+      "id": "small-composable-units",
+      "rule": "Prefer small, composable units with one job each. A newly added function that mixes several unrelated responsibilities (for example parsing, I/O, and UI state in one body), or a change that grows an existing function into that shape, is a violation. Cohesive code that is merely long is not."
+    },
+    {
+      "id": "no-speculative-abstraction",
+      "rule": "Do not add abstraction for needs that do not exist yet. A new protocol or interface with a single implementation, a factory for one product, a configuration option for a value that never changes, or scaffolding left 'for later' is a violation."
+    }
+  ]
+}

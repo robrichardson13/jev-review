@@ -1,99 +1,76 @@
 ---
 name: jev-review
-description: Run Jev Review as a repeated scalar feedback loop during nontrivial coding work. Establish a score baseline after a coherent implementation, diagnose weak dimensions yourself, improve the code, validate it, and rescore with the previous evaluation until important metrics improve or no further justified change remains.
+description: Check a diff against the repo's written rules and Rob's personal code principles using Jev, a fast classifier. Run the rules check after each coherent implementation slice and before final handoff; use the jev_review scorecard only as a secondary signal. Also use when asked to add, tune, or calibrate a rule. Skip for formatting-only or docs-only changes.
 ---
 
 # Jev Review
 
-Use `jev_review` as an iterative engineering-quality signal, not as a narrative code reviewer. The coding agent owns diagnosis, implementation, testing, and final judgment. Jev evaluates the supplied state and returns structured scores; it never edits files.
+Jev is a **System One model**: a classifier that answers typed questions in ~200 ms. It does not reason about code. Measured consequences, which shape everything below:
 
-## The operating model
+- Asked a **generic** question about a bare diff ("is correctness strong?"), it cannot tell a bug from its fix. It rated three known bugs the same as, or better than, their fixes.
+- Asked a **pointed** question with the **rule written down**, it separates them cleanly (bug 0.72–0.95, fix 0.05–0.09 on the same pairs).
 
-The loop is:
+So the knowledge has to come from you. Jev's job is to check a diff against rules that are already written, cheaply enough to do on every slice.
 
-```text
-implement → validate → score → inspect → form a hypothesis → improve → validate → rescore
+## 1. Rules check (primary)
+
+```sh
+node <this-skill-dir>/scripts/jev-rules.mjs              # working tree vs HEAD
+node <this-skill-dir>/scripts/jev-rules.mjs --base main  # whole branch
 ```
 
-A first evaluation is a baseline, not the end of the review. For a nontrivial task, continue the loop after meaningful changes and use score movement to test whether the implementation actually improved.
+It merges two rule lists and asks one yes/no question per rule, per changed file:
 
-Jev does not generate a prose explanation of why a score is low. Treat these as the primary signals:
+- `principles.json` next to this file — personal principles, applied in every repo.
+- `.jev/rules.json` at the repo root — that repo's invariants. Absent is fine.
 
-- Per-metric score
-- Confidence
-- Change from the previous evaluation
-- Meaningful improvements and regressions
+Output is `probability  rule-id  file`, highest first. Exit `0` clean, `1` hits at or above `--threshold` (default 0.6), `2` could not run. `--json` returns every probability, not just hits. Needs `JEV_API_KEY`. Untracked files are not in `git diff`; `git add -N` them first.
 
-Any summaries, priority reasons, or issue labels in the tool response are predefined rubric/category hints. They are not a root-cause analysis from Jev and may not identify the exact problematic code. Inspect the implementation and requirements yourself to determine why a dimension is weak.
+**Reading a hit.** A hit is a pointer, not a verdict. Open the file, read the rule, decide.
 
-## Required review loop
+- ≥ 0.8: almost always real, or the diff's *context lines* contain a violation you did not write. Both are worth knowing.
+- 0.6–0.8: read the code. Often a rule worded too broadly.
+- A hit you judge wrong is a **rule bug**. Tighten the rule's wording or its `paths` rather than ignoring it, or it will fire again forever.
+- A 5xx from the API means no answer. Never report a check that did not run as clean.
 
-For every nontrivial coding task:
+Correctness and the user's requirements outrank every rule. Never restructure sound code just to lower a probability.
 
-1. Understand the user's requirements, invariants, and repository conventions.
-2. Implement a coherent slice and run the relevant tests or checks.
-3. Call `jev_review` to establish or refresh the baseline.
-4. Identify the weakest important metrics, prioritizing correctness, cognitive complexity, changeability, coupling, modularity, abstraction quality, tests, reliability, and security.
-5. Inspect the code and form a concrete hypothesis for what is lowering one or more scores.
-6. Make the smallest justified improvement that addresses that hypothesis. Do not ask Jev to write or explain the fix.
-7. Run relevant validation again.
-8. Call `jev_review` again with the updated implementation and the prior response in `previousEvaluation`.
-9. Check whether targeted scores improved and whether any other dimension regressed.
-10. Repeat when an important weak metric remains and another evidence-based improvement is available.
-
-Do not stop merely because `jev_review` was called once. When a targeted score does not improve, reconsider the diagnosis instead of making random cosmetic changes. Try a different justified improvement and rescore, or determine from the code, confidence, and requirements that the metric should not drive another change.
-
-## When to call
-
-Call `jev_review`:
-
-- After the first coherent implementation exists
-- After each meaningful implementation slice
-- After each review-driven improvement
-- After changes to control flow, state, dependencies, public contracts, tests, or security-sensitive behavior
-- Before final handoff when the previous evaluation no longer describes the current code
-
-Interim reviews may precede the full test suite, but the final evaluation should follow the project's normal validation. Do not call on an unchanged implementation, formatting-only noise, or context too thin to judge.
-
-## Keep comparisons useful
-
-Use `task` and the current `diff` in most calls. Add full files only when surrounding behavior is necessary. Use `repositoryContext` for relevant architecture, conventions, invariants, and test results.
-
-On a follow-up call:
-
-- Pass the previous tool response unchanged as `previousEvaluation`.
-- Send the current implementation state, not the obsolete pre-fix diff.
-- Keep the task and context scope reasonably consistent so score deltas remain comparable.
-- Include newly relevant tests, callers, or contracts when they affect the judgment.
-
-Example:
+## 2. Writing rules
 
 ```json
-{
-  "task": "The requested behavior and acceptance constraints",
-  "diff": "The current implementation diff after the latest changes",
-  "files": [
-    {
-      "path": "src/example.ts",
-      "content": "Only include surrounding code needed to judge the change"
-    }
-  ],
-  "repositoryContext": "Relevant conventions, invariants, and validation results",
-  "previousEvaluation": {}
-}
+{ "rules": [ { "id": "kebab-case-id", "paths": "optional regex on file path", "rule": "…" } ] }
 ```
 
-If Jev reports that its input limit was exceeded, remove unrelated content or split the implementation into coherent review slices. Do not blindly truncate contracts, callers, or tests needed to judge the change.
+A rule that discriminates has three parts, in plain prose: **what is forbidden**, **why** (the failure it causes), and **what to do instead**. Name the concrete APIs and identifiers a violation would contain.
 
-Never send secrets, credentials, private keys, environment files, generated output, vendored code, or unrelated repository content.
+- One rule, one concern. Jev works best on many small independent questions.
+- State exemptions in the rule ("code inside X itself is exempt").
+- Use `paths` to keep a rule off files it cannot apply to. It is the main false-positive control.
+- Vague principles ("write clean code") do not discriminate. If you cannot describe what a violation looks like, it is not a rule yet.
+- Good sources: a repo's CLAUDE.md / AGENTS.md invariants, postmortems, and anything a reviewer has had to say twice.
 
-## Stopping conditions
+**Calibrate every new rule** before trusting it. Write the smallest diff that violates it and the same diff fixed, then:
 
-Stop the loop when:
+```sh
+node scripts/jev-rules.mjs --rules my-rules.json --diff-file bad.diff  --json
+node scripts/jev-rules.mjs --rules my-rules.json --diff-file good.diff --json
+```
 
-- The implementation satisfies the user's requirements and normal validation passes.
-- Important targeted metrics improved and no meaningful regression was introduced.
-- Remaining weak or low-confidence metrics have no concrete, justified improvement available.
-- Further score-seeking changes would add scope, complexity, coupling, or behavioral risk.
+Keep the rule when bad scores ≥ 0.7 and good ≤ 0.3. Otherwise reword and retry; it takes seconds.
 
-Scores are evidence, not objectives to game. Never improve a score by adding speculative architecture, unnecessary abstraction, meaningless tests or comments, mechanical file splitting, scope expansion, or behavior changes the user did not request. Correctness and the user's actual requirements always come first.
+When the user corrects the same kind of mistake twice, or a bug ships that a written rule would have caught, propose a new rule for `.jev/rules.json` (repo-specific) or `principles.json` (applies everywhere).
+
+## 3. Scorecard (secondary)
+
+The `jev_review` MCP tool scores 19 generic dimensions. Run-to-run noise is about ±0.3, so ignore any change under 0.5, and ignore dimensions whose confidence is under ~0.4. Its issue text is a fixed menu with no locations.
+
+It is only informative when you put the relevant rules and invariants into `repositoryContext`; without them it sees a diff and guesses. Use it as a coarse "this slice looks large or risky" signal and for `previousEvaluation` comparisons across a refactor. Do not use it to find bugs, and never optimise code toward its scores.
+
+## Cadence
+
+1. Implement a coherent slice; run fast local checks.
+2. Run the rules check. Investigate hits; fix real ones; fix the rule for false ones.
+3. Re-run after fixes and once more before handoff, against the branch base.
+4. Jev complements tests, type checks, and a reasoning reviewer. It replaces none of them: it only knows the rules someone wrote down.
+
+Do not send secrets, credentials, environment files, generated output, or vendored code. Every call sends the diff to the Jev API.
