@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { JevResponse } from "../src/jev/schema.js";
+import { builtinRules } from "../src/rules/builtin.js";
 import { checkLimits, checkRules, mergeRules, rulesFor, splitDiff } from "../src/rules/rules.js";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
@@ -35,7 +36,7 @@ describe("rules check", () => {
   it("merges user, repo, and inline rules and reports only hits at or above the threshold", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jev-rules-"));
     const userRulesPath = join(dir, "user.json");
-    writeFileSync(userRulesPath, JSON.stringify({ rules: [{ id: "personal", rule: "p" }] }));
+    writeFileSync(userRulesPath, JSON.stringify({ rules: [{ id: "personal", rule: "p" }], disable: builtinRules.map((rule) => rule.id).slice(1) }));
     mkdirSync(join(dir, ".jev"));
     writeFileSync(join(dir, ".jev", "rules.json"), JSON.stringify({ rules: [{ id: "repo-src", rule: "r", paths: "^src/" }] }));
 
@@ -57,8 +58,8 @@ describe("rules check", () => {
       { client, userRulesPath }
     );
 
-    assert.deepEqual(asked.map((ids) => ids.sort()).sort(), [["inline", "personal"], ["inline", "personal", "repo-src"]]);
-    assert.equal(output.rulesLoaded, 3);
+    assert.deepEqual(asked.map((ids) => ids.sort()).sort(), [["hardcoded-secret", "inline", "personal"], ["hardcoded-secret", "inline", "personal", "repo-src"]]);
+    assert.equal(output.rulesLoaded, 4);
     assert.deepEqual(output.hits.map((hit) => `${hit.rule}@${hit.file}`), ["repo-src@src/a.ts"]);
     assert.equal(output.all, undefined);
   });
@@ -83,9 +84,8 @@ describe("rules check", () => {
 
   it("refuses to run with no rules rather than reporting a clean diff", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jev-rules-"));
-    await assert.rejects(
-      checkRules({ repoRoot: dir, diff: DIFF }, { userRulesPath: join(dir, "missing.json") }),
-      /No rules found/
-    );
+    const userRulesPath = join(dir, "user.json");
+    writeFileSync(userRulesPath, JSON.stringify({ disable: builtinRules.map((rule) => rule.id) }));
+    await assert.rejects(checkRules({ repoRoot: dir, diff: DIFF }, { userRulesPath }), /No rules found/);
   });
 });

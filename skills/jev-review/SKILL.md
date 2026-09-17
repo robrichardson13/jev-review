@@ -21,8 +21,10 @@ Call the `jev_rules` MCP tool with `repoRoot` set to the repository's absolute p
 { "repoRoot": "/abs/path/to/repo", "base": "main" }
 ```
 
-The first checks the working tree against `HEAD`; the second checks the whole branch. Rules are merged from three sources, later overriding earlier by `id`:
+The first checks the working tree against `HEAD`; the second checks the whole branch. Rules are merged from four sources, later overriding earlier by `id`:
 
+
+- Built-in: universal practice shipped with the server (`hardcoded-secret`, `injection`, `tests-weakened`, `debug-leftover`, `suppressed-check`, `sensitive-data-logged`).
 - `~/.jev/rules.json`: the user's personal rules, applied in every repository.
 - `<repoRoot>/.jev/rules.json`: that repository's invariants. Absent is fine.
 - `rules` passed inline: for trying out or calibrating a rule.
@@ -53,7 +55,8 @@ A rule that discriminates has three parts, in plain prose: **what is forbidden**
 - Use `paths` to keep a rule off files it cannot apply to. It is the main false-positive control.
 - Vague principles ("write clean code") do not discriminate. If you cannot describe what a violation looks like, it is not a rule yet.
 - Good sources: the repository's CLAUDE.md / AGENTS.md invariants, postmortems, and anything a reviewer has had to say twice.
-- Put a rule in `.jev/rules.json` when it is about this codebase, and in `~/.jev/rules.json` when it is how the user wants code written everywhere.
+- Put a rule in `.jev/rules.json` when it is about this codebase, and in `~/.jev/rules.json` when it is how the user wants code written everywhere. Practice that holds for every codebase and every user belongs in the built-in list.
+- A rules file switches off a lower-precedence rule with `"disable": ["rule-id"]`, or replaces it by reusing its `id`.
 
 **Calibrate every new rule** before trusting it. Write the smallest diff that violates it and the same diff fixed, then call `jev_rules` once with each:
 

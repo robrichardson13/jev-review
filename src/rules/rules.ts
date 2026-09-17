@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getJevApiKey } from "../config/environment.js";
 import type { JevQuestions } from "../evaluation/questions.js";
 import { JevClient } from "../jev/client.js";
+import { builtinRules } from "./builtin.js";
 
 const MAX_FILE_DIFF_BYTES = 100_000;
 const CONCURRENCY = 8;
@@ -33,7 +34,12 @@ export const limitsSchema = z
   })
   .strict();
 
-const ruleFileSchema = z.object({ rules: z.array(ruleSchema).default([]), limits: limitsSchema.optional() });
+const ruleFileSchema = z.object({
+  rules: z.array(ruleSchema).default([]),
+  limits: limitsSchema.optional(),
+  /** Ids of rules from a lower-precedence source (built-in or personal) to switch off. */
+  disable: z.array(z.string()).default([])
+});
 
 export type Limits = z.infer<typeof limitsSchema>;
 type RuleFile = z.infer<typeof ruleFileSchema>;
@@ -79,7 +85,7 @@ export function repoRulesPath(repoRoot: string): string {
   return join(repoRoot, ".jev", "rules.json");
 }
 
-/** Later sources override earlier ones by id: user < repo < inline. */
+/** Later sources override earlier ones by id: built-in < user < repo < inline. */
 export function mergeRules(sources: Rule[][]): Rule[] {
   const merged = new Map<string, Rule>();
   for (const source of sources) for (const rule of source) merged.set(rule.id, rule);
@@ -179,7 +185,10 @@ export async function checkRules(rawInput: RulesInput, dependencies: RulesDepend
     const file = readRuleFile(path);
     return file ? [{ path, ...file }] : [];
   });
-  const rules = mergeRules([...loaded.map((entry) => entry.rules), input.rules ?? []]);
+  const disabled = new Set(loaded.flatMap((entry) => entry.disable));
+  const rules = mergeRules([builtinRules, ...loaded.map((entry) => entry.rules), input.rules ?? []]).filter(
+    (rule) => !disabled.has(rule.id)
+  );
   const limits: Limits = Object.assign({}, ...loaded.map((entry) => entry.limits ?? {}));
   if (rules.length === 0 && !limits.maxFileLines && !limits.maxFilesPerDirectory) {
     throw new Error(`No rules found. Add ${userPath} (personal), .jev/rules.json at the repo root, or pass rules inline.`);
@@ -222,7 +231,7 @@ export async function checkRules(rawInput: RulesInput, dependencies: RulesDepend
   all.sort((a, b) => b.probability - a.probability);
   return {
     threshold,
-    ruleSources: [...loaded.map((entry) => entry.path), ...(input.rules?.length ? ["inline"] : [])],
+    ruleSources: ["built-in", ...loaded.map((entry) => entry.path), ...(input.rules?.length ? ["inline"] : [])],
     rulesLoaded: rules.length,
     filesChecked: work.length,
     skippedFiles,

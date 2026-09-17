@@ -37168,6 +37168,36 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+
+// src/rules/builtin.ts
+var builtinRules = [
+  {
+    id: "hardcoded-secret",
+    rule: 'Never commit a credential. A literal API key, token, password, private key, or connection string with embedded credentials assigned in source, config, or a test is a violation; read it from the environment or a secret store instead. Obvious placeholders ("your-key", "changeme", "xxx"), fake fixture values clearly marked as such, and references to an environment variable name are exempt.'
+  },
+  {
+    id: "injection",
+    rule: "Never build a SQL query, shell command, HTML fragment, or file path by concatenating or interpolating a value that can come from outside the process (request data, user input, file or network content). Use parameterised queries, an argument array instead of a shell string, escaping helpers, or path validation. Interpolating only constants or trusted internal identifiers is exempt."
+  },
+  {
+    id: "tests-weakened",
+    rule: "Do not make a failing test pass by weakening it. Deleting a test or assertion, marking a test skipped, disabled, or expected-to-fail, loosening an assertion to something that always holds, or swapping a real check for a snapshot or mock that asserts nothing is a violation unless the diff also removes the behaviour under test. Updating an expectation to match an intentional behaviour change in the same diff is exempt."
+  },
+  {
+    id: "debug-leftover",
+    rule: "Do not leave debugging artifacts in a change: ad-hoc print or console.log statements, debugger or breakpoint calls, a focused or exclusive test marker (.only, fit, fdescribe), hardcoded local paths or localhost URLs used for testing, temporary early returns, or blocks of commented-out code. Deliberate logging through the project's logger is exempt."
+  },
+  {
+    id: "suppressed-check",
+    rule: "Do not silence a safety check to get a change through. Adding a type or lint suppression (@ts-ignore, @ts-nocheck, eslint-disable, # type: ignore, # noqa, swiftlint:disable, as any), disabling TLS or certificate verification, turning off CSRF, auth, or signature validation, or bypassing commit hooks is a violation unless the same line states a specific reason the check is wrong here."
+  },
+  {
+    id: "sensitive-data-logged",
+    rule: "Do not write sensitive data to logs, error messages, analytics, or URLs: passwords, tokens, API keys, session cookies, full authorization headers, or personal data such as email addresses, phone numbers, and payment details. Log an identifier or a redacted form instead. Logging that a credential was present or absent, without its value, is exempt."
+  }
+];
+
+// src/rules/rules.ts
 var MAX_FILE_DIFF_BYTES = 1e5;
 var CONCURRENCY = 8;
 var MAX_COUNTED_FILE_BYTES = 5e6;
@@ -37183,7 +37213,12 @@ var limitsSchema = external_exports.object({
   /** Regex on the changed file's path; matching files are exempt from every limit. */
   ignorePaths: external_exports.string().min(1).optional()
 }).strict();
-var ruleFileSchema = external_exports.object({ rules: external_exports.array(ruleSchema).default([]), limits: limitsSchema.optional() });
+var ruleFileSchema = external_exports.object({
+  rules: external_exports.array(ruleSchema).default([]),
+  limits: limitsSchema.optional(),
+  /** Ids of rules from a lower-precedence source (built-in or personal) to switch off. */
+  disable: external_exports.array(external_exports.string()).default([])
+});
 var rulesInputSchema = external_exports.object({
   repoRoot: external_exports.string().min(1).optional(),
   base: external_exports.string().min(1).optional(),
@@ -37290,7 +37325,10 @@ async function checkRules(rawInput, dependencies = {}) {
     const file2 = readRuleFile(path);
     return file2 ? [{ path, ...file2 }] : [];
   });
-  const rules = mergeRules([...loaded.map((entry) => entry.rules), input2.rules ?? []]);
+  const disabled = new Set(loaded.flatMap((entry) => entry.disable));
+  const rules = mergeRules([builtinRules, ...loaded.map((entry) => entry.rules), input2.rules ?? []]).filter(
+    (rule) => !disabled.has(rule.id)
+  );
   const limits = Object.assign({}, ...loaded.map((entry) => entry.limits ?? {}));
   if (rules.length === 0 && !limits.maxFileLines && !limits.maxFilesPerDirectory) {
     throw new Error(`No rules found. Add ${userPath} (personal), .jev/rules.json at the repo root, or pass rules inline.`);
@@ -37326,7 +37364,7 @@ async function checkRules(rawInput, dependencies = {}) {
   all.sort((a, b) => b.probability - a.probability);
   return {
     threshold,
-    ruleSources: [...loaded.map((entry) => entry.path), ...input2.rules?.length ? ["inline"] : []],
+    ruleSources: ["built-in", ...loaded.map((entry) => entry.path), ...input2.rules?.length ? ["inline"] : []],
     rulesLoaded: rules.length,
     filesChecked: work.length,
     skippedFiles,

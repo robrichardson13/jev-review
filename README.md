@@ -204,10 +204,11 @@ Run `opencode mcp list` to verify the connection. OpenCode may display the tool 
 
 `jev_rules` asks Jev one yes/no question per rule, per changed file, and returns the likely violations as `probability`, rule id, and file.
 
-Rules are plain JSON and come from up to three places, later overriding earlier by `id`:
+Rules come from up to four places, later overriding earlier by `id`:
 
 | Source | Path | Use for |
 | --- | --- | --- |
+| Built-in | shipped in [`src/rules/builtin.ts`](src/rules/builtin.ts) | Universal practice that holds in any codebase: `hardcoded-secret`, `injection`, `tests-weakened`, `debug-leftover`, `suppressed-check`, `sensitive-data-logged` |
 | Personal | `~/.jev/rules.json` | Principles you want enforced in every repository |
 | Repository | `<repo>/.jev/rules.json` | That codebase's invariants; commit it so the whole team and every agent share them |
 | Inline | the tool's `rules` argument | Calibrating or trying out a rule |
@@ -224,6 +225,8 @@ Rules are plain JSON and come from up to three places, later overriding earlier 
   ]
 }
 ```
+
+A rules file can switch off a lower-precedence rule with `"disable": ["rule-id"]`, or replace it by defining a rule with the same `id`. The built-in rules are a fast first pass, not a replacement for a dedicated secret scanner or SAST tool.
 
 `limits` are exact counts checked locally, because a classifier should not be asked to count. They flag only what a diff makes worse: a file over `maxFileLines` that the diff grew, and a directory over `maxFilesPerDirectory` that the diff added a file to. They need `repoRoot`, and a repository's `limits` override personal ones key by key.
 
