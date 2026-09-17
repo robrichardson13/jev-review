@@ -23,7 +23,6 @@ Call the `jev_rules` MCP tool with `repoRoot` set to the repository's absolute p
 
 The first checks the working tree against `HEAD`; the second checks the whole branch. Rules are merged from four sources, later overriding earlier by `id`:
 
-
 - Built-in: universal practice shipped with the server (`hardcoded-secret`, `injection`, `tests-weakened`, `debug-leftover`, `suppressed-check`, `sensitive-data-logged`).
 - `~/.jev/rules.json`: the user's personal rules, applied in every repository.
 - `<repoRoot>/.jev/rules.json`: that repository's invariants. Absent is fine.
